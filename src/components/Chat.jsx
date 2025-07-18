@@ -1,5 +1,6 @@
 import React, { useState, useRef, useEffect } from "react";
 import { Send, User, Bot, Sparkles, MessageCircle } from "lucide-react";
+import { flushSync } from "react-dom";
 import PayloadProcessor from "../Api-Calls/PayloadProcessor"; // Adjust the import path as necessary
 
 const Chat = () => {
@@ -13,6 +14,9 @@ const Chat = () => {
   const currentTextRef = useRef("");
   // Add state to control PayloadProcessor rendering
   const [payloadToProcess, setPayloadToProcess] = useState(null);
+  // Add thread management state
+  const [threadId, setThreadId] = useState("");
+  const [isNewThread, setIsNewThread] = useState(true);
 
   const scrollToBottom = () => {
     setTimeout(() => {
@@ -59,69 +63,35 @@ const Chat = () => {
     };
 
     setMessages((prev) => [...prev, userMessage]);
+    const currentMessage = inputMessage;
     setInputMessage("");
     setHasUserSentMessage(true);
     setIsTyping(true);
 
-    // Trigger PayloadProcessor when send button is pressed
-    setPayloadToProcess(hardcoded_payload);
-
     // Fetch bot response
-    fetchBotResponse(inputMessage);
-  };
-
-  const hardcoded_payload = {
-    filter: {
-      startDate: 1752690600000,
-      endDate: 1752776970000,
-      notFetchEmpData: false,
-    },
-    keyToFieldList: {
-      AgentTicketDetails: [
-        {
-          id: 1,
-          displayName: "Total Tickets Created",
-          type: "AgentTicketDetails",
-          key: "TOTAL_TICKETS_CREATED",
-          position: "1",
-        },
-        {
-          id: 2,
-          displayName: "Pending Tickets",
-          type: "AgentTicketDetails",
-          key: "TOTAL_TICKETS_PENDING",
-          position: "1",
-        },
-        {
-          id: 3,
-          displayName: "Tickets Resolved",
-          type: "AgentTicketDetails",
-          key: "TOTAL_TICKETS_RESOLVED",
-          position: "1",
-        },
-      ],
-      EmployeeDetails: [
-        {
-          id: 1,
-          displayName: "Employee Code",
-          type: "EmployeeDetails",
-          key: "EMPLOYEE_CODE",
-          position: "1",
-        },
-      ],
-    },
+    fetchBotResponse(currentMessage);
   };
 
   const fetchBotResponse = async (inputMessage) => {
     try {
+      // Prepare payload based on thread state
+      const requestPayload = {
+        user_message: inputMessage,
+        isNewThread: isNewThread,
+        thread_id: threadId,
+      };
+
+      console.log("Sending payload:", requestPayload);
+
       const response = await fetch(
-        "https://e76f17d470eb.ngrok-free.app/kapture/dashboard/payload",
+        "https://48da3b38e21f.ngrok-free.app/kapture/dashboard/payload",
         {
           method: "POST",
           headers: {
             "Content-Type": "application/json",
+            "Cache-Control": "no-cache",
           },
-          body: JSON.stringify({ user_message: inputMessage }),
+          body: JSON.stringify(requestPayload),
         }
       );
 
@@ -131,16 +101,6 @@ const Chat = () => {
       let fullText = "";
       let partialChunk = "";
       let botMessageId = null;
-
-      const pushTextUpdate = () => {
-        if (botMessageId) {
-          setMessages((prev) =>
-            prev.map((msg) =>
-              msg.id === botMessageId ? { ...msg, text: fullText } : msg
-            )
-          );
-        }
-      };
 
       while (true) {
         const { done, value } = await reader.read();
@@ -161,13 +121,23 @@ const Chat = () => {
 
           try {
             const data = JSON.parse(line);
+            console.log("Received data:", data);
 
+            // Handle thread ID response
+            if (data.type === "threadID") {
+              console.log("Thread ID received:", data.content);
+              setThreadId(data.content);
+              setIsNewThread(false);
+            }
+
+            // Handle text content - LIVE STREAMING FIX
             if (data.type === "text" && data.content) {
-              // Create bot message on first content if it doesn't exist
+              console.log("Streaming text chunk:", data.content);
+
               if (!botMessageId) {
                 const botMessage = {
-                  id: Date.now() + Math.random(), // Ensure unique ID
-                  text: "",
+                  id: Date.now() + Math.random(),
+                  text: data.content, // Start with first chunk
                   sender: "bot",
                   timestamp: new Date().toLocaleTimeString([], {
                     hour: "2-digit",
@@ -175,19 +145,60 @@ const Chat = () => {
                   }),
                 };
                 botMessageId = botMessage.id;
+                fullText = data.content;
                 setMessages((prev) => [...prev, botMessage]);
-                setIsTyping(false); // Stop showing typing indicator once we start streaming
-              }
+                setIsTyping(false);
+              } else {
+                fullText += data.content;
 
-              fullText += data.content;
-              pushTextUpdate();
-            } else if (data.content.final_payload) {
-              setFinalPayload(data.keyToFieldList.AgentTicketDetails);
-              console.log("Final Payload:", data.AgentTicketDetails);
+                // Force immediate update with flushSync for live streaming
+                flushSync(() => {
+                  setMessages((prev) =>
+                    prev.map((msg) =>
+                      msg.id === botMessageId ? { ...msg, text: fullText } : msg
+                    )
+                  );
+                });
+              }
+            }
+
+            // Handle payload response - check for the specific structure
+            if (data.type === "payload" && data.content) {
+              console.log("Payload received:", data.content);
+              setFinalPayload(data.content);
+              setPayloadToProcess(data.content);
+            }
+
+            // Handle if the payload comes directly as the data object
+            if (data.filter && data.keyToFieldList) {
+              console.log("Direct payload structure received:", data);
+              setFinalPayload(data);
+              setPayloadToProcess(data);
+            }
+
+            // Handle if payload is nested in content
+            if (
+              data.content &&
+              data.content.filter &&
+              data.content.keyToFieldList
+            ) {
+              console.log("Nested payload structure received:", data.content);
+              setFinalPayload(data.content);
+              setPayloadToProcess(data.content);
+            }
+
+            // Handle other possible payload structures
+            if (data.type === "final_payload" || data.final_payload) {
+              const payload = data.final_payload || data.content;
+              console.log("Final payload received:", payload);
+              setFinalPayload(payload);
+              setPayloadToProcess(payload);
             }
           } catch (err) {
+            console.error("Error parsing JSON:", err);
+            console.log("Problematic line:", line);
             if (i === lines.length - 1) {
-              partialChunk = line; // carry forward incomplete chunk
+              partialChunk = line;
             }
           }
         }
@@ -205,16 +216,24 @@ const Chat = () => {
     }
   };
 
+  // Function to reset thread (optional - for starting new conversations)
+  const resetThread = () => {
+    setThreadId("");
+    setIsNewThread(true);
+    setMessages([]);
+    setHasInitialized(false);
+    setPayloadToProcess(null);
+    setFinalPayload(null);
+  };
+
   return (
     <div className="min-h-screen bg-gradient-to-br from-slate-800 via-slate-900 to-slate-800 flex flex-col">
       {/* Chat Content */}
       <main
         className="flex-1 pt-20 pb-24 overflow-y-auto"
-        style={{ height: "calc(100vh - 104px)" }} // Adjusted height
+        style={{ height: "calc(100vh - 104px)" }}
       >
         <div className="max-w-6xl mx-auto px-4 py-2">
-          {" "}
-          {/* Reduced padding */}
           {messages.map((message) => (
             <div
               key={message.id}
@@ -347,7 +366,7 @@ const Chat = () => {
         }
       `}</style>
 
-      {/* Conditionally render PayloadProcessor only when send button is pressed */}
+      {/* Conditionally render PayloadProcessor with the specific payload structure */}
       {payloadToProcess && <PayloadProcessor payload={payloadToProcess} />}
     </div>
   );

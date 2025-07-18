@@ -146,34 +146,34 @@ const DashboardCharts = ({ apiResponse }) => {
   }, [apiResponse]);
 
   // Show loading state if no data
-  if (!apiResponse) {
-    return (
-      <div className="flex flex-col md:flex-row min-h-screen bg-[#fafafa]">
-        {/* Mobile Sidebar */}
-        <div className="flex md:flex-col w-full md:w-20 bg-white shadow-lg p-2 justify-between md:justify-start">
-          <button className="px-3 py-2 bg-[rgb(0,23,43)] text-white rounded-full font-semibold hover:bg-[#db3700] transition">
-            d1
-          </button>
-          <button
-            onClick={() => navigate("/chat")}
-            className="px-3 py-2 bg-[rgb(0,23,43)] text-white rounded-full font-semibold hover:bg-[#db3700] transition w-12 h-12"
-          >
-            <ChatBubbleOutlineIcon />
-          </button>
-        </div>
+  // if (!apiResponse) {
+  //   return (
+  //     <div className="flex flex-col md:flex-row min-h-screen bg-[#fafafa]">
+  //       {/* Mobile Sidebar */}
+  //       <div className="flex md:flex-col w-full md:w-20 bg-white shadow-lg p-2 justify-between md:justify-start">
+  //         <button className="px-3 py-2 bg-[rgb(0,23,43)] text-white rounded-full font-semibold hover:bg-[#db3700] transition">
+  //           d1
+  //         </button>
+  //         <button
+  //           onClick={() => navigate("/chat")}
+  //           className="px-3 py-2 bg-[rgb(0,23,43)] text-white rounded-full font-semibold hover:bg-[#db3700] transition w-12 h-12"
+  //         >
+  //           <ChatBubbleOutlineIcon />
+  //         </button>
+  //       </div>
 
-        {/* Loading Content */}
-        <div className="flex-1 p-4 md:p-6 flex items-center justify-center">
-          <div className="text-center">
-            <div className="animate-spin rounded-full h-16 w-16 md:h-32 md:w-32 border-b-2 border-blue-600 mx-auto mb-4"></div>
-            <p className="text-gray-600 text-sm md:text-base">
-              Loading dashboard data...
-            </p>
-          </div>
-        </div>
-      </div>
-    );
-  }
+  //       {/* Loading Content */}
+  //       <div className="flex-1 p-4 md:p-6 flex items-center justify-center">
+  //         <div className="text-center">
+  //           <div className="animate-spin rounded-full h-16 w-16 md:h-32 md:w-32 border-b-2 border-blue-600 mx-auto mb-4"></div>
+  //           <p className="text-gray-600 text-sm md:text-base">
+  //             Loading dashboard data...
+  //           </p>
+  //         </div>
+  //       </div>
+  //     </div>
+  //   );
+  // }
 
   return (
     <div className="flex flex-col md:flex-row min-h-screen bg-[#fafafa]">
