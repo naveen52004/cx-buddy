@@ -1,5 +1,6 @@
 import React, { useState, useRef, useEffect } from "react";
-import { Send, User, Bot } from "lucide-react";
+import { Send, User, Bot, Sparkles, MessageCircle } from "lucide-react";
+import PayloadProcessor from "../Api-Calls/PayloadProcessor"; // Adjust the import path as necessary
 
 const Chat = () => {
   const [messages, setMessages] = useState([]);
@@ -7,6 +8,17 @@ const Chat = () => {
   const [isTyping, setIsTyping] = useState(false);
   const messagesEndRef = useRef(null);
   const [hasInitialized, setHasInitialized] = useState(false);
+  const [hasUserSentMessage, setHasUserSentMessage] = useState(false);
+  const [finalPayload, setFinalPayload] = useState(null);
+  const currentTextRef = useRef("");
+  // Add state to control PayloadProcessor rendering
+  const [payloadToProcess, setPayloadToProcess] = useState(null);
+
+  const scrollToBottom = () => {
+    setTimeout(() => {
+      messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
+    }, 0);
+  };
 
   // Auto-scroll when new messages arrive
   useEffect(() => {
@@ -32,37 +44,10 @@ const Chat = () => {
     }
   }, [hasInitialized]);
 
-  // Simulate bot response
-  const simulateBotResponse = (userMessage) => {
-    setIsTyping(true);
-    setTimeout(() => {
-      const responses = [
-        "I understand your question! Let me provide a comprehensive answer for you.",
-        "That's a great point! Here's what I think about that topic.",
-        "I can definitely help with that. Let me break it down step by step.",
-        "Interesting question! Based on my knowledge, here's what I can tell you.",
-        "I'm glad you asked! This is actually a fascinating topic to explore.",
-        "Perfect! I have some insights that might be helpful for your situation.",
-      ];
-      const randomResponse =
-        responses[Math.floor(Math.random() * responses.length)];
-      const botMessage = {
-        id: Date.now(),
-        text: randomResponse,
-        sender: "bot",
-        timestamp: new Date().toLocaleTimeString([], {
-          hour: "2-digit",
-          minute: "2-digit",
-        }),
-      };
-      setMessages((prev) => [...prev, botMessage]);
-      setIsTyping(false);
-    }, 1500);
-  };
-
-  // Send message
   const handleSendMessage = () => {
     if (inputMessage.trim() === "") return;
+
+    // Add user message
     const userMessage = {
       id: Date.now(),
       text: inputMessage,
@@ -72,9 +57,145 @@ const Chat = () => {
         minute: "2-digit",
       }),
     };
+
     setMessages((prev) => [...prev, userMessage]);
     setInputMessage("");
-    simulateBotResponse(inputMessage);
+    setHasUserSentMessage(true);
+    setIsTyping(true);
+
+    // Trigger PayloadProcessor when send button is pressed
+    setPayloadToProcess(hardcoded_payload);
+
+    // Fetch bot response
+    fetchBotResponse(inputMessage);
+  };
+
+  const hardcoded_payload = {
+    filter: {
+      startDate: 1752690600000,
+      endDate: 1752776970000,
+      notFetchEmpData: false,
+    },
+    keyToFieldList: {
+      AgentTicketDetails: [
+        {
+          id: 1,
+          displayName: "Total Tickets Created",
+          type: "AgentTicketDetails",
+          key: "TOTAL_TICKETS_CREATED",
+          position: "1",
+        },
+        {
+          id: 2,
+          displayName: "Pending Tickets",
+          type: "AgentTicketDetails",
+          key: "TOTAL_TICKETS_PENDING",
+          position: "1",
+        },
+        {
+          id: 3,
+          displayName: "Tickets Resolved",
+          type: "AgentTicketDetails",
+          key: "TOTAL_TICKETS_RESOLVED",
+          position: "1",
+        },
+      ],
+      EmployeeDetails: [
+        {
+          id: 1,
+          displayName: "Employee Code",
+          type: "EmployeeDetails",
+          key: "EMPLOYEE_CODE",
+          position: "1",
+        },
+      ],
+    },
+  };
+
+  const fetchBotResponse = async (inputMessage) => {
+    try {
+      const response = await fetch(
+        "https://e76f17d470eb.ngrok-free.app/kapture/dashboard/payload",
+        {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({ user_message: inputMessage }),
+        }
+      );
+
+      const reader = response.body.getReader();
+      const decoder = new TextDecoder("utf-8");
+
+      let fullText = "";
+      let partialChunk = "";
+      let botMessageId = null;
+
+      const pushTextUpdate = () => {
+        if (botMessageId) {
+          setMessages((prev) =>
+            prev.map((msg) =>
+              msg.id === botMessageId ? { ...msg, text: fullText } : msg
+            )
+          );
+        }
+      };
+
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) {
+          setIsTyping(false);
+          break;
+        }
+
+        const chunk = decoder.decode(value, { stream: true });
+        const combined = partialChunk + chunk;
+        const lines = combined.split("\n");
+
+        partialChunk = "";
+
+        for (let i = 0; i < lines.length; i++) {
+          const line = lines[i].trim();
+          if (!line) continue;
+
+          try {
+            const data = JSON.parse(line);
+
+            if (data.type === "text" && data.content) {
+              // Create bot message on first content if it doesn't exist
+              if (!botMessageId) {
+                const botMessage = {
+                  id: Date.now() + Math.random(), // Ensure unique ID
+                  text: "",
+                  sender: "bot",
+                  timestamp: new Date().toLocaleTimeString([], {
+                    hour: "2-digit",
+                    minute: "2-digit",
+                  }),
+                };
+                botMessageId = botMessage.id;
+                setMessages((prev) => [...prev, botMessage]);
+                setIsTyping(false); // Stop showing typing indicator once we start streaming
+              }
+
+              fullText += data.content;
+              pushTextUpdate();
+            } else if (data.content.final_payload) {
+              setFinalPayload(data.keyToFieldList.AgentTicketDetails);
+              console.log("Final Payload:", data.AgentTicketDetails);
+            }
+          } catch (err) {
+            if (i === lines.length - 1) {
+              partialChunk = line; // carry forward incomplete chunk
+            }
+          }
+        }
+      }
+    } catch (error) {
+      console.error("Error fetching bot response:", error);
+      setIsTyping(false);
+    }
   };
 
   const handleKeyPress = (e) => {
@@ -86,36 +207,39 @@ const Chat = () => {
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-slate-800 via-slate-900 to-slate-800 flex flex-col">
-      
       {/* Chat Content */}
-      <main 
+      <main
         className="flex-1 pt-20 pb-24 overflow-y-auto"
-        style={{ height: 'calc(100vh - 104px)' }} // Adjusted height
+        style={{ height: "calc(100vh - 104px)" }} // Adjusted height
       >
-        <div className="max-w-6xl mx-auto px-4 py-2"> {/* Reduced padding */}
+        <div className="max-w-6xl mx-auto px-4 py-2">
+          {" "}
+          {/* Reduced padding */}
           {messages.map((message) => (
             <div
               key={message.id}
-              className={`mb-3 flex ${message.sender === "user" ? "justify-end" : "justify-start"} message-appear`}
+              className={`mb-3 flex ${
+                message.sender === "user" ? "justify-end" : "justify-start"
+              } message-appear`}
             >
               <div
                 className={`max-w-[80%] flex items-start gap-3 ${
                   message.sender === "user" ? "flex-row-reverse" : "flex-row"
                 }`}
               >
-               <div
-  className={`w-10 h-10 flex items-center justify-center rounded-full flex-shrink-0 shadow-lg overflow-hidden`}
->
-  {message.sender === "user" ? (
-    <User size={18} className="text-white" />
-  ) : (
-    <img
-      src="/kapImg.svg"
-      alt="Bot Avatar"
-      className="w-full h-full object-cover"
-    />
-  )}
-</div>
+                <div
+                  className={`w-10 h-10 flex items-center justify-center rounded-full flex-shrink-0 shadow-lg overflow-hidden`}
+                >
+                  {message.sender === "user" ? (
+                    <User size={18} className="text-white" />
+                  ) : (
+                    <img
+                      src="/kapImg.svg"
+                      alt="Bot Avatar"
+                      className="w-full h-full object-cover"
+                    />
+                  )}
+                </div>
 
                 <div
                   className={`relative ${
@@ -138,33 +262,32 @@ const Chat = () => {
               </div>
             </div>
           ))}
-{isTyping && (
-  <div className="flex justify-start mb-3">
-    <div className="max-w-[80%] flex items-center gap-3">
-      <div className="w-10 h-10 rounded-full shadow-lg overflow-hidden">
-        <img
-          src="/kapImg.svg"
-          alt="Bot Avatar"
-          className="w-full h-full object-cover"
-        />
-      </div>
-      <div className="bg-gradient-to-r from-slate-700 to-slate-800 text-white p-4 rounded-2xl shadow-xl backdrop-blur-md border border-slate-600/30">
-        <div className="flex gap-2">
-          <div className="w-2 h-2 bg-blue-400 rounded-full animate-bounce"></div>
-          <div
-            className="w-2 h-2 bg-purple-400 rounded-full animate-bounce"
-            style={{ animationDelay: "0.1s" }}
-          />
-          <div
-            className="w-2 h-2 bg-pink-400 rounded-full animate-bounce"
-            style={{ animationDelay: "0.2s" }}
-          />
-        </div>
-      </div>
-    </div>
-  </div>
-)}
-
+          {isTyping && (
+            <div className="flex justify-start mb-3">
+              <div className="max-w-[80%] flex items-center gap-3">
+                <div className="w-10 h-10 rounded-full shadow-lg overflow-hidden">
+                  <img
+                    src="/kapImg.svg"
+                    alt="Bot Avatar"
+                    className="w-full h-full object-cover"
+                  />
+                </div>
+                <div className="bg-gradient-to-r from-slate-700 to-slate-800 text-white p-4 rounded-2xl shadow-xl backdrop-blur-md border border-slate-600/30">
+                  <div className="flex gap-2">
+                    <div className="w-2 h-2 bg-blue-400 rounded-full animate-bounce"></div>
+                    <div
+                      className="w-2 h-2 bg-purple-400 rounded-full animate-bounce"
+                      style={{ animationDelay: "0.1s" }}
+                    />
+                    <div
+                      className="w-2 h-2 bg-pink-400 rounded-full animate-bounce"
+                      style={{ animationDelay: "0.2s" }}
+                    />
+                  </div>
+                </div>
+              </div>
+            </div>
+          )}
           <div ref={messagesEndRef} />
         </div>
       </main>
@@ -223,6 +346,9 @@ const Chat = () => {
           background: rgba(148, 163, 184, 0.6);
         }
       `}</style>
+
+      {/* Conditionally render PayloadProcessor only when send button is pressed */}
+      {payloadToProcess && <PayloadProcessor payload={payloadToProcess} />}
     </div>
   );
 };
