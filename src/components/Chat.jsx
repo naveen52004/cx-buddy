@@ -1,7 +1,8 @@
 import React, { useState, useRef, useEffect } from "react";
-import { Send, User, Bot, Sparkles, MessageCircle } from "lucide-react";
+import { Send, User, Bot, Eye, EyeOff, X } from "lucide-react";
 import { flushSync } from "react-dom";
-import PayloadProcessor from "../Api-Calls/PayloadProcessor"; // Adjust the import path as necessary
+import { useNavigate } from "react-router-dom";
+import DashboardCharts from "../components/Dashboard/Dashboardchart";
 
 const Chat = () => {
   const [messages, setMessages] = useState([]);
@@ -11,12 +12,16 @@ const Chat = () => {
   const [hasInitialized, setHasInitialized] = useState(false);
   const [hasUserSentMessage, setHasUserSentMessage] = useState(false);
   const [finalPayload, setFinalPayload] = useState(null);
+  const [dashboardResult, setDashboardResult] = useState(null);
+  const [previewLoading, setPreviewLoading] = useState(false);
   const currentTextRef = useRef("");
-  // Add state to control PayloadProcessor rendering
-  const [payloadToProcess, setPayloadToProcess] = useState(null);
   // Add thread management state
   const [threadId, setThreadId] = useState("");
   const [isNewThread, setIsNewThread] = useState(true);
+  // Add navigation hook
+  const navigate = useNavigate();
+  // Preview state
+  const [showPreview, setShowPreview] = useState(false);
 
   const scrollToBottom = () => {
     setTimeout(() => {
@@ -71,6 +76,88 @@ const Chat = () => {
     // Fetch bot response
     fetchBotResponse(currentMessage);
   };
+
+  const fetchDashboardData = async (payload) => {
+    try {
+      setPreviewLoading(true);
+      
+      // Get today's date timestamps
+      const today = new Date();
+      const startOfDay = new Date(
+        today.getFullYear(),
+        today.getMonth(),
+        today.getDate()
+      );
+      const endOfDay = new Date(
+        today.getFullYear(),
+        today.getMonth(),
+        today.getDate(),
+        23,
+        59,
+        59,
+        999
+      );
+
+      // Create enhanced payload with filter
+      const enhancedPayload = {
+        ...payload,
+        filter: {
+          startDate: startOfDay.getTime(),
+          endDate: endOfDay.getTime(),
+          notFetchEmpData: false,
+        },
+      };
+
+      console.log("Making API call with enhanced payload:", enhancedPayload);
+
+      const res = await fetch(
+        "https://democrm.kapturecrm.com/ms/dashboard/performance-dashboard",
+        {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            Authorization: "Basic ZGVtb2NybTpEZW1vY3JtJDMyMQ==",
+          },
+          body: JSON.stringify(enhancedPayload),
+          credentials: "include",
+        }
+      );
+
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+
+      const data = await res.json();
+      console.log("API Response received:", data);
+      setDashboardResult(data);
+    } catch (err) {
+      console.error("Failed to fetch dashboard data", err);
+      setDashboardResult({ error: err.message });
+    } finally {
+      setPreviewLoading(false);
+    }
+  };
+
+  const handlePreview = async () => {
+    if (finalPayload) {
+      setShowPreview(true);
+      if (!dashboardResult) {
+        await fetchDashboardData(finalPayload);
+      }
+    }
+  };
+
+const handleFullDashboard = () => {
+  if (finalPayload) {
+    // Save the entire dashboard state (payload + any UI state you want)
+    const dashboardState = {
+      payload: finalPayload,
+      timestamp: new Date().toISOString(), // Optional: save when it was created
+    };
+
+    localStorage.setItem('savedDashboard', JSON.stringify(dashboardState));
+    navigate("/dashboard");
+  }
+};
+
 
   const fetchBotResponse = async (inputMessage) => {
     try {
@@ -166,14 +253,14 @@ const Chat = () => {
             if (data.type === "payload" && data.content) {
               console.log("Payload received:", data.content);
               setFinalPayload(data.content);
-              setPayloadToProcess(data.content);
+              setDashboardResult(null); // Reset dashboard result for new payload
             }
 
             // Handle if the payload comes directly as the data object
             if (data.filter && data.keyToFieldList) {
               console.log("Direct payload structure received:", data);
               setFinalPayload(data);
-              setPayloadToProcess(data);
+              setDashboardResult(null); // Reset dashboard result for new payload
             }
 
             // Handle if payload is nested in content
@@ -184,7 +271,7 @@ const Chat = () => {
             ) {
               console.log("Nested payload structure received:", data.content);
               setFinalPayload(data.content);
-              setPayloadToProcess(data.content);
+              setDashboardResult(null); // Reset dashboard result for new payload
             }
 
             // Handle other possible payload structures
@@ -192,7 +279,7 @@ const Chat = () => {
               const payload = data.final_payload || data.content;
               console.log("Final payload received:", payload);
               setFinalPayload(payload);
-              setPayloadToProcess(payload);
+              setDashboardResult(null); // Reset dashboard result for new payload
             }
           } catch (err) {
             console.error("Error parsing JSON:", err);
@@ -222,119 +309,190 @@ const Chat = () => {
     setIsNewThread(true);
     setMessages([]);
     setHasInitialized(false);
-    setPayloadToProcess(null);
     setFinalPayload(null);
+    setDashboardResult(null);
+    setShowPreview(false);
   };
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-slate-800 via-slate-900 to-slate-800 flex flex-col">
-      {/* Chat Content */}
-      <main
-        className="flex-1 pt-20 pb-24 overflow-y-auto"
-        style={{ height: "calc(100vh - 104px)" }}
-      >
-        <div className="max-w-6xl mx-auto px-4 py-2">
-          {messages.map((message) => (
-            <div
-              key={message.id}
-              className={`mb-3 flex ${
-                message.sender === "user" ? "justify-end" : "justify-start"
-              } message-appear`}
-            >
+    <div className="min-h-screen bg-gradient-to-br from-slate-800 via-slate-900 to-slate-800 flex">
+      {/* Chat Side */}
+      <div className={`flex flex-col transition-all duration-300 ${showPreview ? 'w-1/2' : 'w-full'}`}>
+        {/* Chat Content */}
+        <main
+          className="flex-1 pt-20 pb-24 overflow-y-auto"
+          style={{ height: "calc(100vh - 104px)" }}
+        >
+          <div className="max-w-6xl mx-auto px-4 py-2">
+            {messages.map((message) => (
               <div
-                className={`max-w-[80%] flex items-start gap-3 ${
-                  message.sender === "user" ? "flex-row-reverse" : "flex-row"
-                }`}
+                key={message.id}
+                className={`mb-3 flex ${
+                  message.sender === "user" ? "justify-end" : "justify-start"
+                } message-appear`}
               >
                 <div
-                  className={`w-10 h-10 flex items-center justify-center rounded-full flex-shrink-0 shadow-lg overflow-hidden`}
+                  className={`max-w-[80%] flex items-start gap-3 ${
+                    message.sender === "user" ? "flex-row-reverse" : "flex-row"
+                  }`}
                 >
-                  {message.sender === "user" ? (
-                    <User size={18} className="text-white" />
-                  ) : (
-                    <img
-                      src="/kapImg.svg"
-                      alt="Bot Avatar"
-                      className="w-full h-full object-cover"
-                    />
-                  )}
-                </div>
-
-                <div
-                  className={`relative ${
-                    message.sender === "user"
-                      ? "bg-gradient-to-r from-emerald-500 to-teal-500"
-                      : "bg-gradient-to-r from-slate-700 to-slate-800"
-                  } text-white p-3 rounded-2xl shadow-xl backdrop-blur-md border border-slate-600/30`}
-                >
-                  <p className="whitespace-pre-wrap text-sm leading-relaxed">
-                    {message.text}
-                  </p>
                   <div
-                    className={`text-xs mt-1 opacity-70 ${
-                      message.sender === "user" ? "text-right" : "text-left"
-                    }`}
+                    className={`w-10 h-10 flex items-center justify-center rounded-full flex-shrink-0 shadow-lg overflow-hidden`}
                   >
-                    {message.timestamp}
+                    {message.sender === "user" ? (
+                      <User size={20} className="text-white" />
+                    ) : (
+                      <div className="w-full h-full bg-blue-500 flex items-center justify-center">
+                      <img src="/public/kapImg.svg"/>
+                      </div>
+                    )}
                   </div>
-                </div>
-              </div>
-            </div>
-          ))}
-          {isTyping && (
-            <div className="flex justify-start mb-3">
-              <div className="max-w-[80%] flex items-center gap-3">
-                <div className="w-10 h-10 rounded-full shadow-lg overflow-hidden">
-                  <img
-                    src="/kapImg.svg"
-                    alt="Bot Avatar"
-                    className="w-full h-full object-cover"
-                  />
-                </div>
-                <div className="bg-gradient-to-r from-slate-700 to-slate-800 text-white p-4 rounded-2xl shadow-xl backdrop-blur-md border border-slate-600/30">
-                  <div className="flex gap-2">
-                    <div className="w-2 h-2 bg-blue-400 rounded-full animate-bounce"></div>
-                    <div
-                      className="w-2 h-2 bg-purple-400 rounded-full animate-bounce"
-                      style={{ animationDelay: "0.1s" }}
-                    />
-                    <div
-                      className="w-2 h-2 bg-pink-400 rounded-full animate-bounce"
-                      style={{ animationDelay: "0.2s" }}
-                    />
-                  </div>
-                </div>
-              </div>
-            </div>
-          )}
-          <div ref={messagesEndRef} />
-        </div>
-      </main>
 
-      {/* Input */}
-      <div className="fixed bottom-0 left-0 sm:left-16 w-full sm:w-[calc(100%-4rem)] z-30 bg-slate-800/90 backdrop-blur-md border-t border-slate-700/50 shadow-lg h-24">
-        <div className="px-4 py-3 h-full flex items-center">
-          <div className="max-w-6xl mx-auto w-full">
-            <div className="relative">
-              <textarea
-                value={inputMessage}
-                onChange={(e) => setInputMessage(e.target.value)}
-                onKeyPress={handleKeyPress}
-                placeholder="Enter your message to the AI system..."
-                className="w-full px-4 py-3 pr-14 bg-slate-700/50 backdrop-blur-md border border-slate-600/50 rounded-xl resize-none focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 min-h-[50px] max-h-32 text-white placeholder-slate-400 shadow-lg"
-                rows="1"
-              />
-              <button
-                onClick={handleSendMessage}
-                disabled={inputMessage.trim() === "" || isTyping}
-                className="absolute right-2 top-2 p-2 bg-gradient-to-r from-blue-500 to-purple-600 text-white rounded-lg hover:from-blue-600 hover:to-purple-700 disabled:opacity-50 transition-all duration-200 shadow-md"
-              >
-                <Send size={18} />
-              </button>
+                  <div
+                    className={`relative ${
+                      message.sender === "user"
+                        ? "bg-gradient-to-r from-emerald-500 to-teal-500"
+                        : "bg-gradient-to-r from-slate-700 to-slate-800"
+                    } text-white p-3 rounded-2xl shadow-xl backdrop-blur-md border border-slate-600/30`}
+                  >
+                    <p className="whitespace-pre-wrap text-sm leading-relaxed">
+                      {message.text}
+                    </p>
+                    <div
+                      className={`text-xs mt-1 opacity-70 ${
+                        message.sender === "user" ? "text-right" : "text-left"
+                      }`}
+                    >
+                      {message.timestamp}
+                    </div>
+                  </div>
+                </div>
+              </div>
+            ))}
+            {isTyping && (
+              <div className="flex justify-start mb-3">
+                <div className="max-w-[80%] flex items-center gap-3">
+                  <div className="w-10 h-10 rounded-full shadow-lg overflow-hidden">
+                    <div className="w-full h-full bg-blue-500 flex items-center justify-center">
+                      <img src="/public/kapImg.svg"/>
+                    </div>
+                  </div>
+                  <div className="bg-gradient-to-r from-slate-700 to-slate-800 text-white p-4 rounded-2xl shadow-xl backdrop-blur-md border border-slate-600/30">
+                    <div className="flex gap-2">
+                      <div className="w-2 h-2 bg-blue-400 rounded-full animate-bounce"></div>
+                      <div
+                        className="w-2 h-2 bg-purple-400 rounded-full animate-bounce"
+                        style={{ animationDelay: "0.1s" }}
+                      />
+                      <div
+                        className="w-2 h-2 bg-pink-400 rounded-full animate-bounce"
+                        style={{ animationDelay: "0.2s" }}
+                      />
+                    </div>
+                  </div>
+                </div>
+              </div>
+            )}
+            <div ref={messagesEndRef} />
+          </div>
+        </main>
+
+        {/* Input */}
+        <div className="bg-slate-800/90 backdrop-blur-md border-t border-slate-700/50 shadow-lg h-24">
+          <div className="px-4 py-3 h-full flex items-center">
+            <div className="max-w-6xl mx-auto w-full">
+              <div className="relative">
+                <textarea
+                  value={inputMessage}
+                  onChange={(e) => setInputMessage(e.target.value)}
+                  onKeyPress={handleKeyPress}
+                  placeholder="Enter your message to the AI system..."
+                  className="w-full px-4 py-3 pr-32 bg-slate-700/50 backdrop-blur-md border border-slate-600/50 rounded-xl resize-none focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 min-h-[50px] max-h-32 text-white placeholder-slate-400 shadow-lg"
+                  rows="1"
+                />
+                
+                {/* Preview Button */}
+                <button
+                  onClick={handlePreview}
+                  disabled={!finalPayload}
+                  className={`absolute right-20 top-2 p-2 rounded-lg transition-all duration-200 shadow-md ${
+                    finalPayload
+                      ? `${showPreview ? 'bg-gradient-to-r from-orange-500 to-red-600' : 'bg-gradient-to-r from-emerald-500 to-teal-600'} text-white hover:opacity-90 cursor-pointer`
+                      : "bg-slate-600 text-slate-400 cursor-not-allowed opacity-50"
+                  }`}
+                  title={finalPayload ? (showPreview ? "Hide Preview" : "Show Preview") : "No data available"}
+                >
+                  {showPreview ? <EyeOff size={18} /> : <Eye size={18} />}
+                </button>
+
+                {/* Send Button */}
+                <button
+                  onClick={handleSendMessage}
+                  disabled={inputMessage.trim() === "" || isTyping}
+                  className="absolute right-2 top-2 p-2 bg-gradient-to-r from-blue-500 to-purple-600 text-white rounded-lg hover:from-blue-600 hover:to-purple-700 disabled:opacity-50 transition-all duration-200 shadow-md"
+                >
+                  <Send size={18} />
+                </button>
+              </div>
             </div>
           </div>
         </div>
       </div>
+
+      {/* Preview Side */}
+      {showPreview && (
+        <div className="w-1/2 bg-white border-l border-slate-300 flex flex-col">
+          {/* Preview Header */}
+          <div className="bg-slate-100 border-b border-slate-200 p-4 flex items-center justify-between">
+            <h2 className="text-lg font-semibold text-slate-800">Dashboard Preview</h2>
+            <div className="flex items-center gap-2">
+              <button
+                onClick={handleFullDashboard}
+                disabled={!finalPayload}
+                className="px-3 py-1 bg-blue-500 text-white rounded-md hover:bg-blue-600 disabled:opacity-50 text-sm"
+              >
+                Save Dashboard
+              </button>
+              <button
+                onClick={() => setShowPreview(false)}
+                className="p-1 hover:bg-slate-200 rounded-md"
+              >
+                <X size={20} className="text-slate-600" />
+              </button>
+            </div>
+          </div>
+
+          {/* Preview Content */}
+          <div className="flex-1 overflow-y-auto bg-gray-50">
+            {previewLoading ? (
+              <div className="flex items-center justify-center h-full">
+                <div className="text-center">
+                  <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600 mx-auto mb-4"></div>
+                  <p className="text-gray-600">Loading dashboard data...</p>
+                </div>
+              </div>
+            ) : dashboardResult ? (
+              <div className="h-full">
+                <DashboardCharts apiResponse={dashboardResult} />
+              </div>
+            ) : finalPayload ? (
+              <div className="flex items-center justify-center h-full">
+                <div className="text-center">
+                  <div className="text-4xl mb-4">📊</div>
+                  <p className="text-gray-600">Click preview to load dashboard data</p>
+                </div>
+              </div>
+            ) : (
+              <div className="flex items-center justify-center h-full">
+                <div className="text-center">
+                  <div className="text-4xl mb-4">💬</div>
+                  <p className="text-gray-600">Generate dashboard data from chat to see preview</p>
+                </div>
+              </div>
+            )}
+          </div>
+        </div>
+      )}
 
       {/* Styles */}
       <style jsx>{`
@@ -365,9 +523,6 @@ const Chat = () => {
           background: rgba(148, 163, 184, 0.6);
         }
       `}</style>
-
-      {/* Conditionally render PayloadProcessor with the specific payload structure */}
-      {payloadToProcess && <PayloadProcessor payload={payloadToProcess} />}
     </div>
   );
 };

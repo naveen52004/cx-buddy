@@ -1,7 +1,7 @@
 import React, { useEffect, useState, useRef } from "react";
 import DashboardCharts from "../components/Dashboard/Dashboardchart";
 
-const PayloadProcessor = ({ payload }) => {
+const PayloadProcessor = ({ payload: propPayload }) => {
   const [result, setResult] = useState(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
@@ -14,7 +14,7 @@ const PayloadProcessor = ({ payload }) => {
       try {
         setLoading(true);
         setError(null);
-        hasFetched.current = true; // Mark as fetched
+        hasFetched.current = true;
 
         // Get today's date timestamps
         const today = new Date();
@@ -37,8 +37,8 @@ const PayloadProcessor = ({ payload }) => {
         const enhancedPayload = {
           ...payload,
           filter: {
-            startDate: startOfDay.getTime(), // Start of today in timestamp
-            endDate: endOfDay.getTime(), // End of today in timestamp
+            startDate: startOfDay.getTime(),
+            endDate: endOfDay.getTime(),
             notFetchEmpData: false,
           },
         };
@@ -91,7 +91,7 @@ const PayloadProcessor = ({ payload }) => {
       {loading && <div>Loading dashboard data...</div>}
       {error && <div>Error: {error}</div>}
       {result && !loading && (
-        <div>
+        <div className="w-full">
           <DashboardCharts apiResponse={result} />
         </div>
       )}
